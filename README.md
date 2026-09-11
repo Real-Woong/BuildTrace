@@ -1,5 +1,7 @@
 # BuildTrace — 도면 증거 검증 데모
 
+**Live: https://buildtrace-demo.pages.dev**
+
 건설 도면의 변경 이력을 **Walrus에 남기고 Sui로 소유**해, 분쟁이 생겼을 때
 "누가 언제 무엇을 바꿨는가"를 증거로 제시하는 흐름을 보여주는 시연용 웹 데모입니다.
 

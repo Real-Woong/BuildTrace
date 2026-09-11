@@ -1,0 +1,1294 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BuildTrace · 도면 증거 검증</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* ══ 토큰 (발표 덱과 동일) ══════════════════════════════ */
+:root{
+  --bg:#080B14; --bg-alt:#0C1120; --surface:#121A2B; --surface-2:#182134;
+  --line:#222C42; --line-hi:#31405C;
+  --sui:#4DA2FF; --aqua:#6FE3D2; --amber:#F0B45E; --red:#FF6B6B;
+  --text:#F4F7FC; --text-2:#9AA8C0; --text-3:#5B6883;
+  --ease:cubic-bezier(.22,.75,.24,1);
+  --mono:"JetBrains Mono",Menlo,Monaco,"SF Mono",Consolas,"DejaVu Sans Mono","Apple SD Gothic Neo","Noto Sans KR",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--text);
+  font-family:"Noto Sans KR",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","맑은 고딕",sans-serif;
+  font-weight:300;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0}
+
+/* ══ 배경 ══════════════════════════════════════════════ */
+.bg{position:fixed;inset:0;pointer-events:none;overflow:hidden;
+  background:radial-gradient(circle at 10% 14%,rgba(77,162,255,.12),transparent 32%),
+             radial-gradient(circle at 92% 84%,rgba(111,227,210,.10),transparent 30%)}
+.bg:before{content:"";position:absolute;inset:-40%;
+  background-image:linear-gradient(rgba(77,162,255,.034) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(77,162,255,.034) 1px,transparent 1px);
+  background-size:46px 46px;transform:perspective(900px) rotateX(66deg) translateY(12%);
+  animation:gridmove 22s linear infinite}
+@keyframes gridmove{to{transform:perspective(900px) rotateX(66deg) translateY(calc(12% + 46px))}}
+
+/* 씬 전환 광선 */
+.sweep{position:fixed;inset:0;pointer-events:none;z-index:36;overflow:hidden}
+.sweep i{position:absolute;top:0;bottom:0;width:34vw;transform:translateX(-50vw);
+  background:linear-gradient(90deg,transparent,rgba(111,227,210,.09),rgba(77,162,255,.05),transparent)}
+.sweep.on i{animation:sweep .72s var(--ease)}
+@keyframes sweep{to{transform:translateX(150vw)}}
+
+/* ══ 셸 ════════════════════════════════════════════════ */
+.app{position:relative;width:100%;height:100%;display:grid;
+  grid-template-rows:74px 1fr 70px;padding:0 clamp(24px,4.2vw,74px)}
+header{display:flex;justify-content:space-between;align-items:center;
+  border-bottom:1px solid rgba(255,255,255,.07);z-index:20}
+.brand{display:flex;gap:13px;align-items:center}
+.logo{width:33px;height:33px;display:grid;place-items:center;border:1px solid var(--aqua);
+  color:var(--aqua);font:600 12px var(--mono);box-shadow:0 0 22px rgba(111,227,210,.15)}
+.brand b{font-size:16px;font-weight:500;letter-spacing:-.01em}
+.brand small{display:block;margin-top:3px;font-size:11px;color:var(--text-3)}
+.headmeta{display:flex;align-items:center;gap:10px}
+.badge{padding:7px 11px;border:1px solid var(--line);font-size:12px;color:var(--text-2)}
+.badge.live{border-color:rgba(111,227,210,.32);color:var(--aqua)}
+.badge.live:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--aqua);margin-right:7px;vertical-align:1px;animation:blink 1.9s infinite}
+@keyframes blink{50%{opacity:.25}}
+.count{font:12px var(--mono);color:var(--text-3);min-width:56px;text-align:right}
+
+/* ══ 씬 ════════════════════════════════════════════════ */
+main{position:relative;min-height:0;perspective:1400px}
+.scene{position:absolute;inset:0;display:grid;align-content:center;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transform:translateY(26px) scale(.984) rotateX(4deg);transform-origin:50% 120%;
+  transition:opacity .46s var(--ease),transform .52s var(--ease),visibility .5s}
+.scene.active{opacity:1;visibility:visible;transform:none;pointer-events:auto}
+.reveal{opacity:0;transform:translateY(24px)}
+.active .reveal{animation:reveal .62s var(--ease) forwards;animation-delay:calc(var(--i,0)*90ms)}
+@keyframes reveal{to{opacity:1;transform:none}}
+
+/* 글자 단위 등장 */
+.ch{display:inline-block;opacity:0;transform:translateY(.4em) rotateX(-55deg)}
+.lit .ch{animation:chIn .52s var(--ease) forwards;animation-delay:calc(var(--c)*24ms)}
+@keyframes chIn{to{opacity:1;transform:none}}
+
+/* 충격파 · 글리치 · 스캔 */
+.shock{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;
+  border:2px solid var(--sc,#6FE3D2);border-radius:50%;pointer-events:none;z-index:5;
+  animation:shock .9s var(--ease) forwards}
+@keyframes shock{to{transform:scale(16);opacity:0}}
+.glitching{animation:gl .12s steps(2) 5}
+@keyframes gl{
+  0%{text-shadow:2px 0 var(--red),-2px 0 var(--sui);transform:translateX(0)}
+  50%{text-shadow:-4px 0 var(--red),4px 0 var(--sui);transform:translateX(3px)}
+  100%{text-shadow:none;transform:none}}
+.scanning{overflow:hidden}
+.scanning:after{content:"";position:absolute;left:0;right:0;height:70px;top:-70px;z-index:4;
+  background:linear-gradient(180deg,transparent,rgba(111,227,210,.28),transparent);
+  animation:scan 1.15s var(--ease) forwards;pointer-events:none}
+@keyframes scan{to{top:100%}}
+
+/* ══ 타이포 (56/30/26/20/18/16/13/12) ═══════════════════ */
+.klabel{font-size:12px;letter-spacing:.16em;color:var(--text-3);text-transform:uppercase}
+.eyebrow{margin-bottom:16px;font-size:13px;letter-spacing:.16em;color:var(--sui)}
+.eyebrow.aqua{color:var(--aqua)} .eyebrow.amber{color:var(--amber)} .eyebrow.red{color:var(--red)}
+h1{font-size:clamp(38px,4.8vw,56px);font-weight:300;line-height:1.14;letter-spacing:-.035em}
+h2{font-size:clamp(28px,3.3vw,42px);font-weight:300;line-height:1.2;letter-spacing:-.03em}
+h3{font-size:20px;font-weight:400;letter-spacing:-.01em}
+.lead{max-width:900px;margin-top:18px;font-size:18px;line-height:1.75;color:var(--text-2)}
+.sub{font-size:16px;line-height:1.7;color:var(--text-2)}
+.tiny{margin-top:13px;font-size:13px;line-height:1.65;color:var(--text-3)}
+.mono{font-family:var(--mono)}
+.blue{color:var(--sui)} .aqua{color:var(--aqua)} .amber{color:var(--amber)} .red{color:var(--red)}
+
+/* 용어 각주 */
+.hint{margin-top:20px;padding:14px 17px;border-left:2px solid var(--line-hi);
+  background:rgba(18,26,43,.6);font-size:13px;line-height:1.7;color:var(--text-3);
+  opacity:0;transform:translateY(10px);transition:.5s var(--ease)}
+.hint.on{opacity:1;transform:none}
+.hint b{color:var(--aqua);font-weight:400}
+
+/* ══ 공통 조각 ═════════════════════════════════════════ */
+.two{display:grid;grid-template-columns:.95fr 1.05fr;gap:clamp(26px,3.8vw,60px);align-items:center}
+.two.equal{grid-template-columns:1fr 1fr}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card{padding:22px;background:var(--surface);border:1px solid var(--line)}
+.action{margin-top:22px;padding:12px 18px;border:1px solid currentColor;
+  background:rgba(77,162,255,.08);color:var(--sui);font-size:13px;cursor:pointer;transition:.22s}
+.action:hover{transform:translateY(-2px);background:rgba(77,162,255,.17)}
+.action.aqua-b{color:var(--aqua);background:rgba(111,227,210,.08)}
+.action.aqua-b:hover{background:rgba(111,227,210,.17)}
+
+/* ══ 01 현장 ═══════════════════════════════════════════ */
+.hero{position:relative}
+.tower{position:absolute;right:-2%;top:50%;transform:translateY(-50%);
+  width:min(38vw,460px);height:min(70vh,520px);pointer-events:none}
+.tower path{fill:none;stroke:var(--sui);stroke-width:1.2;opacity:.5;
+  stroke-dasharray:var(--L);stroke-dashoffset:var(--L)}
+.tower.draw path{animation:draw .8s var(--ease) forwards;animation-delay:calc(var(--d)*55ms)}
+@keyframes draw{to{stroke-dashoffset:0}}
+.hero-in{position:relative;z-index:2;max-width:62%}
+.clash{display:grid;grid-template-columns:1fr 92px 1fr;align-items:center;gap:14px;margin-top:30px}
+.say{position:relative;padding:22px 24px;background:var(--surface);border:1px solid var(--line);opacity:0}
+.say b{display:block;margin-bottom:9px;font-size:13px;font-weight:500}
+.say span{font-size:clamp(18px,1.7vw,22px);font-weight:300;line-height:1.4}
+.say.a{border-left:3px solid var(--sui);transform:translateX(-52px)}
+.say.a b{color:var(--sui)}
+.say.b{border-left:3px solid var(--amber);transform:translateX(52px)}
+.say.b b{color:var(--amber)}
+.playing .say{animation:slideIn .6s var(--ease) forwards}
+.playing .say.b{animation-delay:.3s}
+@keyframes slideIn{to{opacity:1;transform:none}}
+.vs{text-align:center;font-size:12px;letter-spacing:.12em;color:var(--text-3);opacity:0}
+.playing .vs{animation:reveal .5s var(--ease) .72s forwards}
+.shaken .clash{animation:shake .5s var(--ease)}
+@keyframes shake{20%{transform:translateX(-7px)}40%{transform:translateX(7px)}
+  60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+.verdict{position:relative;margin-top:22px;padding:19px 23px;border-left:3px solid var(--red);
+  background:rgba(255,107,107,.06);font-size:20px;font-weight:300;opacity:0;overflow:hidden}
+.playing .verdict{animation:reveal .55s var(--ease) 1.2s forwards}
+
+/* ══ 02 용어 번역 ══════════════════════════════════════ */
+.glossary{display:grid;gap:9px}
+.gterm{display:grid;grid-template-columns:150px 44px 190px 1fr;gap:18px;align-items:center;
+  padding:15px 20px;background:var(--surface);border-left:3px solid var(--line-hi);
+  opacity:0;transform:translateX(-26px)}
+.playing .gterm{animation:gIn .55s var(--ease) forwards;animation-delay:calc(var(--g)*.16s)}
+@keyframes gIn{to{opacity:1;transform:none}}
+.gterm .kr{font-size:20px;font-weight:400;color:var(--text)}
+.gterm .kr em{display:block;font-style:normal;font-size:12px;color:var(--text-3);margin-top:3px}
+.gterm .to{text-align:center;font:18px var(--mono);color:var(--line-hi)}
+.playing .gterm .to{animation:toIn .4s var(--ease) forwards;
+  animation-delay:calc(var(--g)*.16s + .25s)}
+@keyframes toIn{to{color:var(--aqua)}}
+.gterm .dev{font-size:20px;font-weight:400;color:var(--aqua)}
+.gterm p{font-size:13px;line-height:1.6;color:var(--text-2)}
+.gterm.punch{border-left-color:var(--amber)}
+.gterm.punch .dev{color:var(--amber)}
+.gnote{margin-top:15px;padding:17px 21px;border-left:3px solid var(--amber);
+  background:rgba(240,180,94,.07);font-size:18px;font-weight:300;line-height:1.6;
+  opacity:0;transform:translateY(14px)}
+.playing .gnote{animation:reveal .6s var(--ease) 1.05s forwards}
+
+/* ══ 03 확산도 ═════════════════════════════════════════ */
+.spread{position:relative;height:min(48vh,380px);border:1px solid var(--line);
+  background:rgba(12,17,32,.6);overflow:hidden}
+.spread svg{position:absolute;inset:0;width:100%;height:100%}
+.spread .edge{fill:none;stroke:var(--line-hi);stroke-width:1;
+  stroke-dasharray:var(--L);stroke-dashoffset:var(--L);transition:stroke-dashoffset .75s var(--ease)}
+.spread.playing .edge{stroke-dashoffset:0;transition-delay:calc(var(--e)*.12s)}
+.origin,.dot{position:absolute;transform:translate(-50%,-50%);z-index:2}
+.origin{left:50%;top:50%;padding:16px 20px;background:var(--surface-2);
+  border:1px solid var(--aqua);text-align:center;box-shadow:0 0 30px rgba(111,227,210,.16)}
+.origin b{display:block;font-size:16px;font-weight:400;color:var(--aqua)}
+.origin span{font-size:12px;color:var(--text-3)}
+.dot{padding:11px 14px;background:var(--surface);border:1px solid var(--line);
+  font-size:13px;color:var(--text-2);opacity:0;transition:.45s var(--ease)}
+.spread.playing .dot{opacity:1;transition-delay:calc(.3s + var(--e)*.12s)}
+.spread.playing .dot.bad{border-color:var(--red);color:var(--red);background:rgba(255,107,107,.09)}
+.dot i{display:block;font-size:12px;font-style:normal;color:var(--text-3);margin-top:4px}
+.spread.playing .dot.bad i{color:var(--red)}
+
+/* ══ 04 질문 ═══════════════════════════════════════════ */
+.bigq{margin-top:10px;font-size:clamp(32px,4.4vw,52px);font-weight:300;line-height:1.25;
+  letter-spacing:-.03em;min-height:1.3em}
+.bigq:after{content:"";display:inline-block;width:3px;height:.92em;margin-left:6px;
+  background:var(--aqua);vertical-align:-.12em;animation:caret .9s step-end infinite}
+.typed-done.bigq:after{display:none}
+@keyframes caret{50%{opacity:0}}
+
+/* ══ 05 도면 ═══════════════════════════════════════════ */
+.versions{display:grid;grid-template-columns:1fr 62px 1fr;gap:14px;align-items:center}
+.vcard{position:relative;padding:22px;background:var(--surface);border-top:3px solid var(--aqua)}
+.vcard.b{border-top-color:var(--amber)}
+.plan{position:relative;height:150px;margin:16px 0;border:1px solid var(--line);
+  background:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),
+             linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:22px 22px}
+.col{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:52px;height:52px;border:3px solid var(--aqua);background:rgba(111,227,210,.12);
+  display:grid;place-items:center;font:12px var(--mono);color:var(--aqua);transition:.9s var(--ease)}
+.vcard.b .col{border-color:var(--amber);color:var(--amber);background:rgba(240,180,94,.12)}
+.playing .vcard.b .col{width:76px;height:76px;box-shadow:0 0 40px rgba(240,180,94,.32)}
+.spec{display:flex;justify-content:space-between;align-items:baseline;
+  border-top:1px solid var(--line);padding:12px 0;font-size:16px}
+.spec b{font:400 20px var(--mono)}
+.track{display:flex;gap:5px;margin-top:12px;flex-wrap:wrap}
+.step{padding:8px 9px;border:1px solid var(--line);font-size:12px;color:var(--text-3);
+  opacity:0;transform:translateY(8px) scale(.9);transition:.4s var(--ease)}
+.playing .step{opacity:1;transform:none;transition-delay:calc(var(--s)*.09s)}
+.step.on{border-color:rgba(111,227,210,.4);color:var(--aqua)}
+.step.off{border-style:dashed}
+.playing .step.off{color:var(--red);border-color:rgba(255,107,107,.45)}
+.arrow{text-align:center;font-size:26px;color:var(--text-3)}
+
+/* ══ 06 지문 ═══════════════════════════════════════════ */
+.fingers{display:grid;grid-template-columns:1fr 64px 1fr;gap:14px;align-items:center}
+.finger{position:relative;padding:22px;background:var(--surface);border-top:3px solid var(--sui)}
+.finger.right{border-top-color:var(--line-hi)}
+.playing .finger.right.mismatch{border-top-color:var(--red)}
+.fname{font:14px var(--mono);color:var(--text-2)}
+.fhash{margin-top:14px;font:clamp(14px,1.4vw,18px)/1.5 var(--mono);color:var(--sui);word-break:break-all}
+.finger.right .fhash{color:var(--text-2)}
+.playing .finger.right.mismatch .fhash{color:var(--red)}
+.fnote{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:13px;color:var(--text-3)}
+.eq{text-align:center;font:300 40px var(--mono);color:var(--text-3);transition:.3s}
+.eq.no{color:var(--red);text-shadow:0 0 24px rgba(255,107,107,.5)}
+
+/* ══ 07/14 3층 ═════════════════════════════════════════ */
+.stack{position:relative;display:grid;gap:12px}
+.spine{position:absolute;left:-1px;top:0;width:3px;height:0;z-index:3;
+  background:linear-gradient(180deg,var(--aqua),var(--sui),var(--amber));
+  transition:height .9s var(--ease)}
+.spined .spine{height:100%}
+.layer{position:relative;padding:20px 24px;background:var(--surface);
+  border-left:3px solid var(--line-hi);display:grid;
+  grid-template-columns:132px 1fr auto;gap:20px;align-items:center;
+  opacity:0;transform:translateY(28px)}
+.playing .layer{animation:reveal .62s var(--ease) forwards;animation-delay:calc(var(--l)*.17s)}
+.layer .num{font-size:13px;color:var(--text-3);letter-spacing:.08em}
+.layer b{display:block;font-size:20px;font-weight:400;margin-bottom:6px}
+.layer p{font-size:13px;line-height:1.6;color:var(--text-2)}
+.layer.f{border-left-color:var(--aqua)} .layer.f .num{color:var(--aqua)}
+.layer.p{border-left-color:var(--sui)}  .layer.p .num{color:var(--sui)}
+.layer.q{border-left-color:var(--amber)}.layer.q .num{color:var(--amber)}
+.tech{position:relative;padding:10px 15px;border:1px solid var(--line);font:14px var(--mono);
+  color:var(--text-3);white-space:nowrap;opacity:0;transform:translateX(18px) scale(.9);
+  transition:.5s var(--ease)}
+.tech-on .tech{opacity:1;transform:none}
+.tech-on .layer.f .tech{border-color:var(--aqua);color:var(--aqua);
+  box-shadow:0 0 24px rgba(111,227,210,.22);transition-delay:.45s}
+.tech-on .layer.p .tech{border-color:var(--sui);color:var(--sui);
+  box-shadow:0 0 24px rgba(77,162,255,.22);transition-delay:.62s}
+.tech-on .layer.q .tech{border-color:var(--amber);color:var(--amber);
+  box-shadow:0 0 24px rgba(240,180,94,.22);transition-delay:.79s}
+
+/* ══ 08 도장 ═══════════════════════════════════════════ */
+.stamps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stamp{position:relative;padding:22px;background:var(--surface);border-top:3px solid var(--aqua)}
+.stamp b{font-size:20px;font-weight:400}
+.stamp span{display:block;margin-top:6px;font-size:13px;color:var(--text-2)}
+.seal{position:relative;margin-top:16px;height:66px;display:grid;place-items:center;
+  border:1px dashed var(--line);font-size:13px;color:var(--text-3)}
+.stamp.sealed .seal{border:1px solid rgba(111,227,210,.45);color:var(--aqua);
+  background:rgba(111,227,210,.07);animation:slam .42s var(--ease) both}
+@keyframes slam{0%{transform:scale(2.2) rotate(-10deg);opacity:0}
+  60%{transform:scale(.94) rotate(1deg);opacity:1}100%{transform:none;opacity:1}}
+.rules{display:grid;gap:8px;margin-top:14px}
+.rule{padding:15px 18px;background:var(--bg-alt);display:grid;
+  grid-template-columns:1fr auto;gap:16px;align-items:center;font-size:16px;color:var(--text-2)}
+.rule i{font-style:normal;font-size:13px;color:var(--text-3);opacity:0;transition:.35s}
+.playing .rule i{opacity:1;color:var(--aqua);transition-delay:calc(var(--r)*.14s + .6s)}
+
+/* ══ 09 봉인 ═══════════════════════════════════════════ */
+.tree{position:relative;height:min(46vh,340px);border:1px solid var(--line);background:rgba(12,17,32,.6)}
+.tree svg{position:absolute;inset:0;width:100%;height:100%}
+.tree .edge{fill:none;stroke:var(--line-hi);stroke-width:1;transition:.5s}
+.tree.proved .edge.lit{stroke:var(--aqua);stroke-width:2.4;filter:drop-shadow(0 0 7px rgba(111,227,210,.65))}
+.tnode{position:absolute;transform:translate(-50%,-50%);padding:9px 12px;z-index:2;
+  background:var(--surface-2);border:1px solid var(--line);font-size:12px;
+  color:var(--text-3);white-space:nowrap;transition:.4s var(--ease)}
+.tree.proved .tnode.lit{border-color:var(--aqua);color:var(--aqua);box-shadow:0 0 24px rgba(111,227,210,.3)}
+.tree.proved .tnode.lit.r{transition-delay:.55s}
+.result{position:relative;margin-top:14px;padding:17px;border:1px solid var(--line);text-align:center;
+  font-size:16px;color:var(--text-3);transition:.4s;overflow:hidden}
+.result.ok{border-color:rgba(111,227,210,.45);color:var(--aqua);background:rgba(111,227,210,.06)}
+
+/* ══ 10 질의응답 ═══════════════════════════════════════ */
+.askbox{padding:24px;background:var(--surface);border:1px solid var(--line)}
+.askline{display:flex;gap:9px;margin-top:13px}
+.askline input{min-width:0;flex:1;padding:14px 16px;background:var(--bg-alt);
+  border:1px solid var(--line);color:var(--text);font:300 16px inherit;outline:none}
+.askline input:focus{border-color:var(--sui)}
+.askline .action{margin:0}
+.answer{margin-top:16px;padding:22px;border-left:3px solid var(--aqua);
+  background:rgba(111,227,210,.05);min-height:140px}
+.answer strong{display:block;font-size:20px;font-weight:300;line-height:1.55}
+.cites{display:flex;gap:7px;margin-top:16px;flex-wrap:wrap}
+.cite{padding:8px 11px;border:1px solid rgba(111,227,210,.3);font:12px var(--mono);
+  color:var(--aqua);opacity:0;transform:translateY(10px) scale(.94);transition:.35s var(--ease)}
+.cite.on{opacity:1;transform:none}
+.guard{margin-top:12px;padding:15px 18px;border-left:3px solid var(--amber);
+  background:rgba(240,180,94,.06);font-size:13px;line-height:1.65;color:var(--text-2)}
+
+/* ══ 11 방어 ═══════════════════════════════════════════ */
+.attacks{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.attack{position:relative;padding:22px;background:var(--surface);border-top:3px solid var(--red)}
+.attack h3{margin:9px 0}
+.attack p{font-size:13px;line-height:1.6;color:var(--text-2)}
+.attack .res{position:relative;display:block;margin-top:16px;padding:10px 12px;
+  border:1px dashed var(--line);font-size:13px;color:var(--text-3);transition:.35s}
+.attack.hit{animation:hit .34s var(--ease)}
+@keyframes hit{0%{transform:translateX(0)}25%{transform:translateX(-8px)}
+  60%{transform:translateX(6px)}100%{transform:none}}
+.attack .res.blocked{border-style:solid;border-color:rgba(111,227,210,.45);
+  color:var(--aqua);background:rgba(111,227,210,.07)}
+.scoreline{position:relative;margin-top:16px;padding:20px 24px;border:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center;gap:20px}
+.scoreline strong{font:300 clamp(28px,3vw,42px) var(--mono);color:var(--text-3);transition:.3s}
+.scoreline.done strong{color:var(--aqua);text-shadow:0 0 28px rgba(111,227,210,.45)}
+
+/* ══ 12 실행 ═══════════════════════════════════════════ */
+.term{background:var(--bg-alt);border:1px solid var(--line);padding:22px;
+  font:13px/1.85 var(--mono);color:var(--text-2);min-height:min(38vh,272px)}
+.term .l{display:block;white-space:pre-wrap;opacity:0}
+.term .l.on{animation:reveal .28s var(--ease) forwards}
+.term .l.head{color:var(--text)}
+.term .l.ok{color:var(--aqua)} .term .l.bad{color:var(--red)}
+.report{display:grid;gap:8px}
+.rrow{padding:15px 18px;background:var(--surface);border-left:3px solid var(--line);
+  display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;font-size:16px;
+  color:var(--text-2);opacity:0;transform:translateX(-12px);transition:.4s var(--ease)}
+.rrow.on{opacity:1;transform:none;border-left-color:var(--aqua)}
+.rrow.on.no{border-left-color:var(--red)}
+.rrow em{font-style:normal;font-size:13px;color:var(--aqua)}
+.rrow.no em{color:var(--red)}
+
+/* ══ 13 왜 지금 ════════════════════════════════════════ */
+.unlocks{display:grid;gap:11px}
+.unlock{display:grid;grid-template-columns:1fr 58px 1fr;gap:12px;align-items:stretch}
+.ublock,.uopen{padding:19px 22px;background:var(--surface);opacity:0;transform:translateY(20px)}
+.ublock{border-left:3px solid var(--red)}
+.uopen{border-left:3px solid var(--aqua)}
+.ublock b,.uopen b{display:block;font-size:18px;font-weight:400;margin:8px 0 7px}
+.ublock b{color:var(--text)} .uopen b{color:var(--aqua)}
+.ublock p,.uopen p{font-size:13px;line-height:1.6;color:var(--text-2)}
+.uarrow{display:grid;place-items:center;font:20px var(--mono);color:var(--text-3);opacity:0}
+.playing .ublock{animation:reveal .5s var(--ease) forwards;animation-delay:calc(var(--r)*.36s)}
+.playing .uarrow{animation:reveal .4s var(--ease) forwards;animation-delay:calc(var(--r)*.36s + .22s)}
+.playing .uopen{animation:uop .55s var(--ease) forwards;animation-delay:calc(var(--r)*.36s + .36s)}
+@keyframes uop{0%{opacity:0;transform:translateX(-22px)}100%{opacity:1;transform:none}}
+
+/* ══ 15 현재/다음 ══════════════════════════════════════ */
+.nownext{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{padding:26px;background:var(--surface);border-top:3px solid var(--aqua)}
+.panel.next{border-top-color:var(--sui)}
+.panel h3{margin:10px 0 18px;font-size:26px;font-weight:300}
+.pline{display:grid;grid-template-columns:22px 1fr;gap:13px;align-items:baseline;
+  padding:13px 0;border-top:1px solid var(--line);font-size:16px;color:var(--text-2)}
+.pline s{text-decoration:none;font:13px var(--mono);color:var(--aqua)}
+.panel.next .pline s{color:var(--sui)}
+.pfoot{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--text-3)}
+
+/* ══ 16 레시피 ═════════════════════════════════════════ */
+.recipe{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.rcard{position:relative;padding:24px;background:var(--surface);border-top:3px solid var(--aqua);
+  opacity:0;transform:translateY(26px) scale(.97)}
+.rcard:nth-child(2){border-top-color:var(--sui)}
+.rcard:nth-child(3){border-top-color:var(--amber)}
+.playing .rcard{animation:reveal .6s var(--ease) forwards;animation-delay:calc(var(--l)*.18s)}
+.rcard h3{margin:10px 0 6px;font:400 24px var(--mono)}
+.rcard:nth-child(1) h3{color:var(--aqua)}
+.rcard:nth-child(2) h3{color:var(--sui)}
+.rcard:nth-child(3) h3{color:var(--amber)}
+.rcard .what{font-size:16px;color:var(--text);margin-bottom:12px;line-height:1.5}
+.rcard li{list-style:none;padding:9px 0;border-top:1px solid var(--line);
+  font-size:13px;line-height:1.6;color:var(--text-2)}
+.dont{margin-top:15px;padding:18px 22px;border-left:3px solid var(--red);
+  background:rgba(255,107,107,.06);font-size:16px;line-height:1.7;color:var(--text-2);
+  opacity:0;transform:translateY(14px)}
+.playing .dont{animation:reveal .6s var(--ease) .8s forwards}
+.dont b{color:var(--red);font-weight:400}
+
+/* ══ 푸터 ══════════════════════════════════════════════ */
+footer{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;
+  border-top:1px solid rgba(255,255,255,.07);z-index:30}
+.controls{display:flex;gap:7px}
+.navbtn{width:36px;height:36px;border:1px solid var(--line);background:var(--surface);
+  cursor:pointer;transition:.2s;font-size:13px}
+.navbtn:hover{color:var(--sui);border-color:var(--sui)}
+.chapters{display:flex;gap:6px;align-items:center;justify-content:center}
+.chapter{height:22px;padding:0;border:0;cursor:pointer;display:flex;align-items:center;gap:7px;
+  color:var(--text-3);font-size:12px;transition:.25s var(--ease)}
+.chapter:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--line-hi);transition:.25s}
+.chapter span{max-width:0;overflow:hidden;white-space:nowrap;opacity:0;transition:.3s var(--ease)}
+.chapter:hover:before{background:var(--text-2)}
+.chapter.active:before{background:var(--aqua);box-shadow:0 0 10px rgba(111,227,210,.6)}
+.chapter.active{color:var(--text)}
+.chapter.active span{max-width:120px;opacity:1}
+.footlabel{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-3);white-space:nowrap}
+.progressbar{position:fixed;left:0;bottom:0;height:2px;
+  background:linear-gradient(90deg,var(--aqua),var(--sui));transition:width .45s var(--ease);z-index:40}
+
+/* ══ 도움말 ════════════════════════════════════════════ */
+.help{position:fixed;inset:0;z-index:100;background:rgba(6,9,16,.9);backdrop-filter:blur(10px);
+  display:none;place-items:center}
+.help.open{display:grid}
+.help-card{width:min(560px,calc(100vw - 40px));padding:30px;background:var(--surface);border:1px solid var(--line)}
+.help-card h3{font-size:26px;font-weight:300;margin-bottom:18px}
+.keyrow{display:flex;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line);
+  font-size:16px;color:var(--text-2)}
+kbd{padding:5px 8px;border:1px solid var(--line);font:12px var(--mono);color:var(--text)}
+
+/* ══ 반응형 ════════════════════════════════════════════ */
+@media(max-width:1240px){
+  .gterm{grid-template-columns:130px 34px 165px 1fr;gap:12px}
+  .hero-in{max-width:72%} .tower{opacity:.45}
+}
+@media(max-width:1100px){
+  .layer{grid-template-columns:1fr;gap:10px}
+  .tech{justify-self:start}
+  .unlock{grid-template-columns:1fr}
+  .uarrow{transform:rotate(90deg);height:30px}
+  .gterm{grid-template-columns:1fr;gap:8px}
+  .gterm .to{display:none}
+}
+@media(max-width:820px){
+  .app{grid-template-rows:60px 1fr 58px;padding:0 18px}
+  .badge,.count,.footlabel{display:none}
+  .scene{overflow:auto;padding:16px 0}
+  .two,.two.equal,.nownext{grid-template-columns:1fr;gap:18px}
+  .versions,.fingers,.clash{grid-template-columns:1fr}
+  .three,.stamps,.attacks,.recipe{grid-template-columns:1fr}
+  .say.a,.say.b{transform:translateY(22px)}
+  .hero-in{max-width:100%} .tower{display:none}
+  h1{font-size:30px} h2{font-size:26px} .lead{font-size:16px}
+  .chapter span{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="sweep" id="sweep"><i></i></div>
+<div class="app">
+
+  <header>
+    <div class="brand">
+      <div class="logo">BT</div>
+      <div><b>BuildTrace</b><small>AI × Sui × Walrus — 도면이 언제 누구에게 갔는지 증거로 답합니다</small></div>
+    </div>
+    <div class="headmeta">
+      <span class="badge live">실제 동작 데모</span>
+      <span class="badge">건설 · BIM</span>
+      <span class="count" id="count">01 / 16</span>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- 01 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="현장" data-anim="clash">
+      <div class="hero">
+        <svg class="tower" id="tower" viewBox="-120 -240 240 380" aria-hidden="true"></svg>
+        <div class="hero-in">
+          <div class="eyebrow amber reveal" style="--i:0">건설 현장에서 실제로 벌어지는 일</div>
+          <h1 id="heroTitle">도면 한 장 때문에<br>공사가 멈췄습니다.</h1>
+          <div class="clash">
+            <div class="say a"><b>설계사</b><span>“변경 도면 보냈습니다”</span></div>
+            <div class="vs">— 말 대 말 —</div>
+            <div class="say b"><b>시공사</b><span>“그런 도면 못 받았습니다”</span></div>
+          </div>
+          <div class="verdict">둘 중 하나는 틀렸습니다. 그런데 <span class="red">아무도 증명하지 못합니다.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="용어" data-anim="glossary">
+      <div>
+        <div class="eyebrow aqua reveal" style="--i:0">시작 전에 · 건축 용어 5개만</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:20px">개발자 언어로 번역하면<br>
+          <span class="aqua">이미 다 아는 이야기입니다.</span></h2>
+        <div class="glossary">
+          <div class="gterm" style="--g:0">
+            <div class="kr">BIM<em>빔 · 건물 정보 모델</em></div>
+            <div class="to">≈</div><div class="dev">건물의 소스코드</div>
+            <p>도면 그림이 아닙니다. 기둥 하나하나가 속성값을 가진 데이터입니다. 3D 모델 + 데이터베이스에 가깝습니다.</p>
+          </div>
+          <div class="gterm" style="--g:1">
+            <div class="kr">IFC<em>아이에프씨 · .ifc 파일</em></div>
+            <div class="to">≈</div><div class="dev">건물계의 JSON</div>
+            <p>BIM을 회사끼리 주고받는 표준 포맷. 텍스트 기반인데 건물 하나가 수백 MB~수 GB입니다.</p>
+          </div>
+          <div class="gterm" style="--g:2">
+            <div class="kr">Revision<em>리비전 · V10, V11</em></div>
+            <div class="to">≈</div><div class="dev">커밋</div>
+            <p>설계가 바뀔 때마다 버전이 올라갑니다. 문제는 브랜치도 머지도 히스토리도 강제되지 않는다는 것.</p>
+          </div>
+          <div class="gterm" style="--g:3">
+            <div class="kr">감리<em>감리사 · 법정 제3자 검수</em></div>
+            <div class="to">≈</div><div class="dev">승인 권한 리뷰어</div>
+            <p>설계사도 시공사도 아닌 제3자. 이 사람의 승인이 없으면 시공에 들어갈 수 없습니다. 법으로 정해진 역할입니다.</p>
+          </div>
+          <div class="gterm punch" style="--g:4">
+            <div class="kr">CDE<em>씨디이 · 공용 데이터 환경</em></div>
+            <div class="to">≈</div><div class="dev">공용 레포</div>
+            <p>다 같이 쓰는 도면 저장소. 그런데 누가 언제 무엇을 받았는지는 git만큼 엄격하게 남지 않습니다.</p>
+          </div>
+        </div>
+        <div class="gnote">정리하면 — <span class="amber">git 없이 굴러가는 수백 GB짜리 모노레포</span>에서
+          “누가 어느 커밋을 받았느냐”로 수십억이 오가는 분쟁이 납니다.</div>
+      </div>
+    </section>
+
+    <!-- 03 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="문제" data-anim="spread">
+      <div class="two">
+        <div>
+          <div class="eyebrow reveal" style="--i:0">왜 증명이 안 될까</div>
+          <h2 class="reveal" style="--i:1">도면은 한 장이 아니라<br><span class="blue">수십 개의 사본입니다.</span></h2>
+          <p class="lead reveal" style="--i:2">메일로, 메신저로, USB로, 각자의 폴더로 퍼집니다.<br>
+            이름은 전부 같고 내용은 조금씩 다릅니다.<br>어느 것이 “그때 그 도면”인지 아무도 모릅니다.</p>
+          <div class="hint" id="hint3"><b>IFC는 텍스트 파일입니다.</b> 에디터로 열어 숫자 한 줄만 고쳐도
+            파일은 멀쩡히 열립니다.<br>눈으로는 절대 구분되지 않습니다.</div>
+        </div>
+        <div class="spread reveal" style="--i:2" id="spread">
+          <svg aria-hidden="true"></svg>
+          <div class="origin"><b>도면 V10</b><span>2026-03-14 승인본</span></div>
+          <div class="dot" style="left:15%;top:16%;--e:0">이메일 첨부<i>사본 4개</i></div>
+          <div class="dot" style="left:78%;top:14%;--e:1">메신저 전달<i>사본 7개</i></div>
+          <div class="dot" style="left:13%;top:60%;--e:2">USB · 외장하드<i>사본 3개</i></div>
+          <div class="dot" style="left:84%;top:60%;--e:3">현장 출력본<i>사본 9개</i></div>
+          <div class="dot bad" style="left:46%;top:86%;--e:4">누군가의 폴더<i>내용이 다름</i></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="질문" data-anim="question">
+      <div>
+        <div class="eyebrow aqua reveal" style="--i:0">오늘 이 데모가 답하는 단 하나의 질문</div>
+        <div class="bigq" id="bigq"></div>
+        <p class="lead reveal" style="--i:4">“받았을 것이다”가 아니라 <span class="aqua">“받았다 / 받지 않았다”</span>를
+          증거로 판정합니다. 증거가 없으면, 없다고 말합니다.</p>
+      </div>
+    </section>
+
+    <!-- 05 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="도면" data-anim="versions">
+      <div>
+        <div class="eyebrow reveal" style="--i:0">사건 재구성</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:20px">기둥이 굵어졌습니다.<br>
+          <span class="amber">그런데 그 사실이 현장에 도착했을까요?</span></h2>
+        <div class="versions reveal" style="--i:2">
+          <div class="vcard">
+            <div class="klabel">V10 · 공식 승인본</div>
+            <div class="plan"><i class="col">A기둥</i></div>
+            <div class="spec"><span>기둥 단면</span><b class="aqua">500 × 500</b></div>
+            <div class="track">
+              <span class="step on" style="--s:0">그림</span><span class="step on" style="--s:1">제출</span>
+              <span class="step on" style="--s:2">검토</span><span class="step on" style="--s:3">승인</span>
+              <span class="step on" style="--s:4">배포</span><span class="step on" style="--s:5">수신</span>
+            </div>
+          </div>
+          <div class="arrow">→</div>
+          <div class="vcard b">
+            <div class="klabel">V11 · 변경본</div>
+            <div class="plan"><i class="col">A기둥</i></div>
+            <div class="spec"><span>기둥 단면</span>
+              <b class="amber"><span id="v11n">500</span> × <span id="v11n2">500</span></b></div>
+            <div class="track">
+              <span class="step on" style="--s:0">그림</span><span class="step off" style="--s:1">제출 없음</span>
+              <span class="step off" style="--s:2">승인 없음</span><span class="step off" style="--s:3">배포 없음</span>
+              <span class="step off" style="--s:4">수신 없음</span>
+            </div>
+          </div>
+        </div>
+        <div class="hint" id="hint5"><b>단면 500 × 500은 기둥의 굵기(mm)입니다.</b>
+          이게 600으로 커졌다는 건 하중 계산이 바뀌었다는 뜻 — 이미 콘크리트를 부었다면 되돌릴 수 없습니다.</div>
+      </div>
+    </section>
+
+    <!-- 06 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="지문" data-anim="finger">
+      <div class="two">
+        <div>
+          <div class="eyebrow red reveal" style="--i:0">첫 번째 장치 · 파일의 지문</div>
+          <h2 class="reveal" style="--i:1">이름이 같다고<br><span class="red">같은 파일은 아닙니다.</span></h2>
+          <p class="lead reveal" style="--i:2">모든 파일에는 내용에서 계산되는 고유한 지문이 있습니다.<br>
+            점 하나만 바뀌어도 지문 전체가 완전히 달라집니다.<br>
+            그래서 “같은 이름의 다른 파일”은 숨을 곳이 없습니다.</p>
+          <p class="tiny reveal" style="--i:3">사람이 눈으로 대조하는 것이 아니라, 기계가 초 단위로 판정합니다.</p>
+        </div>
+        <div class="fingers reveal" style="--i:2">
+          <div class="finger" id="fleft">
+            <div class="klabel">승인된 원본</div>
+            <div class="fname">Structural_V10.ifc</div>
+            <div class="fhash" id="h1">················</div>
+            <div class="fnote">2026-03-14 감리 승인 시점에 기록된 지문</div>
+          </div>
+          <div class="eq" id="eqmark">=</div>
+          <div class="finger right" id="fright">
+            <div class="klabel">현장에서 발견된 파일</div>
+            <div class="fname">Structural_V10.ifc</div>
+            <div class="fhash" id="h2">················</div>
+            <div class="fnote" id="fnote2">이름도 날짜도 동일해 보입니다</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="3층" data-anim="stack">
+      <div>
+        <div class="eyebrow aqua reveal" style="--i:0">BuildTrace가 확인하는 세 가지</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:22px">분쟁을 끝내려면<br>
+          <span class="aqua">세 가지가 동시에 증명돼야 합니다.</span></h2>
+        <div class="stack" id="stack1">
+          <span class="spine"></span>
+          <div class="layer f" style="--l:0"><span class="num">01 · 파일</span>
+            <div><b>이 파일이 그때 그 파일이 맞나?</b><p>지문을 대조해 내용이 바뀌지 않았음을 확인합니다.</p></div>
+            <span class="tech">확인</span></div>
+          <div class="layer p" style="--l:1"><span class="num">02 · 사람</span>
+            <div><b>누가, 어떤 자격으로 승인했나?</b><p>설계사·감리사·시공사의 전자 도장을 검증합니다. 감리 승인은 감리사만 찍을 수 있습니다.</p></div>
+            <span class="tech">확인</span></div>
+          <div class="layer q" style="--l:2"><span class="num">03 · 전달</span>
+            <div><b>정말 상대방에게 도착했나?</b><p>보낸 기록과 받은 기록이 짝을 이루는지 확인합니다. 짝이 없으면 “전달되지 않음”입니다.</p></div>
+            <span class="tech">확인</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 08 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="도장" data-anim="stamp">
+      <div>
+        <div class="eyebrow reveal" style="--i:0">두 번째 장치 · 전자 도장</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:18px">아무나 승인 도장을<br><span class="blue">찍을 수 없게 만듭니다.</span></h2>
+        <div class="stamps reveal" style="--i:2">
+          <div class="stamp"><b>설계사</b><span>도면을 그리고 제출합니다</span>
+            <div class="seal">도장 확인 완료</div></div>
+          <div class="stamp"><b>감리사</b><span>검토하고 승인합니다</span>
+            <div class="seal">도장 확인 완료</div></div>
+          <div class="stamp"><b>시공사</b><span>배포본을 수신합니다</span>
+            <div class="seal">도장 확인 완료</div></div>
+        </div>
+        <div class="rules reveal" style="--i:3">
+          <div class="rule" style="--r:0"><span>설계사가 감리 승인을 대신 기록할 수 없습니다</span><i>차단됨</i></div>
+          <div class="rule" style="--r:1"><span>승인 전에 배포하거나, 배포 전에 수신할 수 없습니다</span><i>차단됨</i></div>
+          <div class="rule" style="--r:2"><span>같은 기록을 두 번 밀어 넣을 수 없습니다</span><i>차단됨</i></div>
+          <div class="rule" style="--r:3"><span>버전 족보를 거꾸로 돌려 놓을 수 없습니다</span><i>차단됨</i></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="봉인" data-anim="proof">
+      <div class="two">
+        <div>
+          <div class="eyebrow aqua reveal" style="--i:0">세 번째 장치 · 봉인</div>
+          <h2 class="reveal" style="--i:1">기록 전체를 열어보지 않고도<br>
+            <span class="aqua">한 건이 진짜인지 확인합니다.</span></h2>
+          <p class="lead reveal" style="--i:2">수만 건의 기록을 하나의 봉인으로 묶어둡니다.
+            나중에 “이 수신 기록, 진짜 그때 있었던 것 맞나요?”라고 물으면
+            영수증 한 장으로 봉인과 대조해 답할 수 있습니다.</p>
+          <button class="action aqua-b reveal" style="--i:3" data-act="proof">다시 대조 ↻</button>
+        </div>
+        <div>
+          <div class="tree reveal" style="--i:2" id="tree">
+            <svg aria-hidden="true"></svg>
+            <span class="tnode lit r" data-n="root" style="left:50%;top:17%">봉인 · 1b9c…af20</span>
+            <span class="tnode" data-n="a" style="left:25%;top:48%">묶음 A</span>
+            <span class="tnode lit" data-n="b" style="left:75%;top:48%">묶음 B</span>
+            <span class="tnode" data-n="l1" style="left:13%;top:79%">승인</span>
+            <span class="tnode" data-n="l2" style="left:37%;top:79%">배포</span>
+            <span class="tnode lit" data-n="l3" style="left:63%;top:79%">V10 수신</span>
+            <span class="tnode" data-n="l4" style="left:87%;top:79%">V11 생성</span>
+          </div>
+          <div class="result" id="proofres">대조 전</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="AI 답변" data-anim="ask">
+      <div class="two equal">
+        <div>
+          <div class="eyebrow amber reveal" style="--i:0">AI가 하는 일 · 그리고 하지 않는 일</div>
+          <h2 class="reveal" style="--i:1">근거가 없으면<br><span class="amber">있다고 말하지 않습니다.</span></h2>
+          <p class="lead reveal" style="--i:2">보통의 AI는 그럴듯한 문장을 만듭니다.
+            여기서는 답변의 모든 문장에 검증된 기록이 붙습니다.
+            붙일 근거가 없으면 답을 만들지 않고 기권합니다.</p>
+          <div class="guard reveal" style="--i:3">“누가 법적 책임을 지나요?” 같은 질문에는 답하지 않습니다.<br>
+            증거가 말해줄 수 있는 범위 밖이기 때문입니다. 판단은 사람이 합니다.</div>
+        </div>
+        <div class="askbox reveal" style="--i:2">
+          <div class="klabel">질문하기</div>
+          <div class="askline">
+            <input id="askInput" value="시공사가 V11을 받았나요?" aria-label="질문 입력">
+            <button class="action" data-act="ask">질문</button>
+          </div>
+          <div class="answer"><strong id="ansText">질문을 실행하면 검증된 답변이 표시됩니다.</strong>
+            <div class="cites" id="cites"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="방어" data-anim="attacks">
+      <div>
+        <div class="eyebrow red reveal" style="--i:0">잘 되는 경우만 보여주지 않습니다</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:18px">속이려고 시도하면<br><span class="red">어떻게 되는지도 보여드립니다.</span></h2>
+        <div class="attacks reveal" style="--i:2">
+          <div class="attack"><div class="klabel">시도 01</div><h3>권한 없는 승인</h3>
+            <p>설계사가 자기 도장으로 감리 승인을 만들어 넣습니다.</p><span class="res">대기</span></div>
+          <div class="attack"><div class="klabel">시도 02</div><h3>기록 재사용</h3>
+            <p>이미 처리된 수신 기록을 그대로 다시 제출합니다.</p><span class="res">대기</span></div>
+          <div class="attack"><div class="klabel">시도 03</div><h3>족보 뒤집기</h3>
+            <p>V11이 V10보다 먼저인 것처럼 버전 순서를 꼬아 놓습니다.</p><span class="res">대기</span></div>
+        </div>
+        <div class="scoreline reveal" style="--i:3" id="score">
+          <div><div class="klabel">자동 검증</div>
+            <span class="sub">정상 흐름 · 변조 파일 · 권한 위반 · 중복 제출</span></div>
+          <strong id="scoreNum">0 / 11</strong>
+          <button class="action" style="margin:0" data-act="attacks">다시 실행 ↻</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="실행" data-anim="run">
+      <div class="two equal">
+        <div>
+          <div class="eyebrow aqua reveal" style="--i:0">지금 실제로 돌아가는 것</div>
+          <h2 class="reveal" style="--i:1">명령 한 줄이면<br><span class="aqua">누구든 같은 결과를 다시 만듭니다.</span></h2>
+          <p class="lead reveal" style="--i:2">“믿어달라”가 아니라 “직접 돌려보라”입니다.<br>
+            같은 입력을 넣으면 언제 어디서 실행해도 같은 결론이 나옵니다.</p>
+          <div class="report reveal" style="--i:3" id="report">
+            <div class="rrow"><span>파일이 승인 당시와 같은가</span><em>일치</em></div>
+            <div class="rrow"><span>감리 승인 도장이 있는가</span><em>있음</em></div>
+            <div class="rrow"><span>시공사에 배포됐는가</span><em>배포됨</em></div>
+            <div class="rrow"><span>시공사가 V10을 수신했는가</span><em>수신 확인</em></div>
+            <div class="rrow no"><span>시공사가 V11을 수신했는가</span><em>기록 없음</em></div>
+          </div>
+        </div>
+        <div class="term reveal" style="--i:2" id="term"></div>
+      </div>
+    </section>
+
+    <!-- 13 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="왜 지금" data-anim="unlock">
+      <div>
+        <div class="eyebrow reveal" style="--i:0">이 아이디어는 20년 전에도 있었습니다</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:18px">그런데 왜 이제야 가능할까요?<br>
+          <span class="blue">막고 있던 세 가지가 최근에 풀렸습니다.</span></h2>
+        <div class="unlocks">
+          <div class="unlock" style="--r:0">
+            <div class="ublock"><div class="klabel">막혀 있던 것</div>
+              <b>수백 MB짜리 IFC를 어디에 두지?</b><p>블록체인에 원본을 올리면 비용이 감당되지 않습니다. 그렇다고 회사 서버에 두면 “나중에 바꿨다”는 의심이 남습니다.</p></div>
+            <div class="uarrow">→</div>
+            <div class="uopen"><div class="klabel">지금 가능해진 것</div>
+              <b>Walrus</b><p>대용량 파일을 통째로, 저렴하게, 지우거나 바꿀 수 없게 보관하는 저장 네트워크입니다.</p></div>
+          </div>
+          <div class="unlock" style="--r:1">
+            <div class="ublock"><div class="klabel">막혀 있던 것</div>
+              <b>기록 하나 남길 때마다 수수료?</b><p>기존 블록체인은 느리고 비쌌습니다. 현장 하나에서 하루 수백 건이 쌓이는 건설에는 쓸 수 없었습니다.</p></div>
+            <div class="uarrow">→</div>
+            <div class="uopen"><div class="klabel">지금 가능해진 것</div>
+              <b>Sui</b><p>도면 한 장을 하나의 객체로 다뤄 서로 간섭 없이 병렬 처리합니다. 빠르고, 건당 비용이 낮습니다.</p></div>
+          </div>
+          <div class="unlock" style="--r:2">
+            <div class="ublock"><div class="klabel">막혀 있던 것</div>
+              <b>쌓아둔 기록을 누가 읽나?</b><p>수만 건의 로그가 있어도 사람이 못 읽으면 없는 것과 같습니다. 그래서 대부분의 이력 시스템이 실패했습니다.</p></div>
+            <div class="uarrow">→</div>
+            <div class="uopen"><div class="klabel">지금 가능해진 것</div>
+              <b>AI</b><p>“시공사가 V11을 받았나요?”라고 물으면, 근거 기록을 찾아 붙여서 답합니다. 없으면 없다고 답합니다.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="기술" data-anim="stack2">
+      <div>
+        <div class="eyebrow blue reveal" style="--i:0">세 기술이 각자 다른 층을 맡습니다</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:22px">아까 그 세 가지 질문에<br>
+          <span class="blue">기술 이름을 붙이면 이렇게 됩니다.</span></h2>
+        <div class="stack" id="stack2">
+          <span class="spine"></span>
+          <div class="layer f" style="--l:0"><span class="num">01 · 파일</span>
+            <div><b>이 파일이 그때 그 파일이 맞나?</b><p>원본 IFC와 판단 근거를 통째로 보관합니다. 나중에 아무도 바꿀 수 없습니다.</p></div>
+            <span class="tech">Walrus</span></div>
+          <div class="layer p" style="--l:1"><span class="num">02 · 사람 · 전달</span>
+            <div><b>누가 승인했고, 정말 도착했나?</b><p>도면 한 장을 하나의 객체로 두고, 승인·배포·수신을 그 객체의 상태 변화로 남깁니다.</p></div>
+            <span class="tech">Sui</span></div>
+          <div class="layer q" style="--l:2"><span class="num">03 · 질문</span>
+            <div><b>그래서, 받았나 안 받았나?</b><p>사람의 말로 묻고, 검증된 기록을 근거로 답합니다. 근거가 없으면 기권합니다.</p></div>
+            <span class="tech">AI</span></div>
+        </div>
+        <p class="lead reveal" style="--i:3">셋 중 하나만 빠져도 성립하지 않습니다.<br>
+          저장만 있으면 아무도 안 읽고, 장부만 있으면 원본이 없고, AI만 있으면 근거가 없습니다.</p>
+      </div>
+    </section>
+
+    <!-- 15 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="현재·다음" data-anim="nownext">
+      <div>
+        <div class="eyebrow reveal" style="--i:0">정직하게 말씀드리는 현재 위치</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:18px">오늘 보신 것은 전부 실제로 동작합니다.<br>
+          <span class="blue">체인 연동은 다음 단계입니다.</span></h2>
+        <div class="nownext reveal" style="--i:2">
+          <div class="panel">
+            <div class="klabel">오늘 증명한 것</div>
+            <h3>실제 동작 · 재현 가능</h3>
+            <div class="pline"><s>✓</s><span>파일 지문 대조 — 변조본을 실제로 잡아냅니다</span></div>
+            <div class="pline"><s>✓</s><span>전자 도장 검증 — 권한·순서·중복을 차단합니다</span></div>
+            <div class="pline"><s>✓</s><span>받았다 / 못 받았다 판정 — 근거와 함께 출력됩니다</span></div>
+            <div class="pfoot">외부 패키지 없이 로컬에서 그대로 재현됩니다. 결과는 검증 보고서 파일로 남습니다.</div>
+          </div>
+          <div class="panel next">
+            <div class="klabel">다음 단계</div>
+            <h3>설계 확정 · 구현 진행</h3>
+            <div class="pline"><s>○</s><span>Walrus — 원본 IFC와 근거 데이터를 네트워크에 보관</span></div>
+            <div class="pline"><s>○</s><span>Sui — 도면 객체의 승인·배포·수신 상태를 온체인 기록</span></div>
+            <div class="pline"><s>○</s><span>AI — 문장마다 검증된 근거를 인용하는 질의응답</span></div>
+            <div class="pfoot">증거의 규격은 이미 확정돼 있습니다. 저장 위치와 기록 위치를 바꿔 끼우는 작업입니다.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 16 ────────────────────────────────────────────── -->
+    <section class="scene" data-title="레시피" data-anim="recipe">
+      <div>
+        <div class="eyebrow aqua reveal" style="--i:0">여러분 프로젝트에 그대로 옮기는 법</div>
+        <h2 class="reveal" style="--i:1;margin-bottom:20px">건설이 아니어도 됩니다.<br>
+          <span class="aqua">“증거가 필요한 모든 것”에 같은 3층이 붙습니다.</span></h2>
+        <div class="recipe">
+          <div class="rcard" style="--l:0"><div class="klabel">저장</div><h3>Walrus</h3>
+            <div class="what">크고 · 안 변해야 하고 · 나중에 증거가 될 것</div>
+            <ul><li>원본 파일 — 도면 · 영상 · 데이터셋</li>
+              <li>AI에 넣은 입력과 프롬프트</li>
+              <li>모델이 뱉은 결과물 원본</li></ul></div>
+          <div class="rcard" style="--l:1"><div class="klabel">기록</div><h3>Sui</h3>
+            <div class="what">작고 · 순서가 중요하고 · 소유와 권한이 걸린 것</div>
+            <ul><li>저장한 것의 지문과 주소</li>
+              <li>누가 언제 무엇을 했는지의 상태 변화</li>
+              <li>소유권 · 승인 권한 · 접근 권한</li></ul></div>
+          <div class="rcard" style="--l:2"><div class="klabel">해석</div><h3>AI</h3>
+            <div class="what">사람이 다 못 읽는 양을 · 근거를 붙여서</div>
+            <ul><li>질문을 받고 필요한 기록만 찾기</li>
+              <li>답변 문장마다 근거 인용</li>
+              <li>근거가 없으면 만들지 않고 기권</li></ul></div>
+        </div>
+        <div class="dont"><b>절대 하지 말 것</b> — 원본을 체인에 올리기(비용 폭발) ·
+          AI 답변을 검증 없이 신뢰하기(그럴듯한 거짓말) · 해시만 남기고 원본을 못 찾게 두기(증거로 못 씀)</div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="controls">
+      <button class="navbtn" id="prev" aria-label="이전">←</button>
+      <button class="navbtn" id="next" aria-label="다음">→</button>
+    </div>
+    <nav class="chapters" id="chapters" aria-label="목차"></nav>
+    <div class="footlabel"><span id="title">현장</span>
+      <button class="navbtn" id="helpBtn" style="width:28px;height:28px" aria-label="도움말">?</button></div>
+  </footer>
+</div>
+
+<div class="progressbar" id="progressbar"></div>
+
+<div class="help" id="help"><div class="help-card">
+  <h3>발표 조작</h3>
+  <div class="keyrow"><span>다음 / 이전</span><span><kbd>→</kbd> <kbd>←</kbd> <kbd>Space</kbd></span></div>
+  <div class="keyrow"><span>현재 화면 애니메이션 다시 재생</span><kbd>R</kbd></div>
+  <div class="keyrow"><span>처음 / 마지막</span><span><kbd>Home</kbd> <kbd>End</kbd></span></div>
+  <div class="keyrow"><span>전체 화면</span><kbd>F</kbd></div>
+  <div class="keyrow"><span>닫기</span><kbd>Esc</kbd></div>
+</div></div>
+
+<script>
+(()=>{
+"use strict";
+const NS='http://www.w3.org/2000/svg';
+const scenes=[...document.querySelectorAll('.scene')];
+const nav=document.getElementById('chapters');
+const countEl=document.getElementById('count');
+const titleEl=document.getElementById('title');
+const bar=document.getElementById('progressbar');
+const sweep=document.getElementById('sweep');
+const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const $=(s,r)=>(r||document).querySelector(s);
+const $$=(s,r)=>[...(r||document).querySelectorAll(s)];
+
+/* ── 애니메이션 수명 관리 ──────────────────────────────
+   씬을 옮길 때마다 gen을 올린다. 진행 중인 타이머·rAF는
+   자기 gen이 아니면 스스로 멈춘다. 되돌아오면 처음부터 재생. */
+let gen=0, timers=[];
+function after(ms,fn){const g=gen;timers.push(setTimeout(()=>{if(g===gen)fn()},reduce?0:ms))}
+function frame(fn){const g=gen;requestAnimationFrame(t=>{if(g===gen)fn(t)})}
+function killTimers(){timers.forEach(clearTimeout);timers=[]}
+
+/* ── 연출 유틸 ───────────────────────────────────────── */
+const HEX='0123456789abcdef';
+function scramble(el,final,dur){
+  if(reduce){el.textContent=final;return}
+  const t0=performance.now(),n=final.length;
+  (function step(now){
+    const p=Math.min(1,(now-t0)/dur);let out='';
+    for(let i=0;i<n;i++){
+      const c=final[i];
+      if(c===' '||c==='…'||c==='·'){out+=c;continue}
+      out+=(i/n<p*1.2)?c:HEX[Math.random()*16|0];
+    }
+    el.textContent=out;
+    if(p<1)frame(step);
+  })(performance.now());
+}
+function type(el,text,speed,done){
+  if(reduce){el.textContent=text;done&&done();return}
+  el.textContent='';let i=0;
+  (function step(){el.textContent=text.slice(0,++i);
+    if(i<text.length)after(speed,step);else done&&done()})();
+}
+function countTo(el,from,to,dur){
+  if(reduce){el.textContent=to;return}
+  const t0=performance.now();
+  (function f(now){const p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
+    el.textContent=Math.round(from+(to-from)*e);if(p<1)frame(f)})(performance.now());
+}
+/* 글자 단위 등장 */
+function splitChars(el){
+  if(el.dataset.split==='1')return;
+  const walk=n=>[...n.childNodes].forEach(c=>{
+    if(c.nodeType===3){
+      const frag=document.createDocumentFragment();
+      [...c.textContent].forEach(ch=>{
+        const s=document.createElement('span');
+        s.className='ch';s.textContent=(ch===' '?'\u00a0':ch);frag.appendChild(s);
+      });
+      c.replaceWith(frag);
+    }else if(c.nodeType===1&&c.tagName!=='BR')walk(c);
+  });
+  walk(el);el.dataset.split='1';
+  $$('.ch',el).forEach((s,i)=>s.style.setProperty('--c',i));
+}
+/* 충격파 */
+function shock(host,color){
+  if(reduce||!host)return;
+  if(getComputedStyle(host).position==='static')host.style.position='relative';
+  const r=document.createElement('span');
+  r.className='shock';r.style.setProperty('--sc',color||'#6FE3D2');
+  host.appendChild(r);after(950,()=>r.remove());
+}
+/* 글리치 */
+function glitch(el){if(reduce)return;el.classList.remove('glitching');void el.offsetWidth;el.classList.add('glitching')}
+/* 스캔 라인 */
+function scan(el){if(reduce)return;el.classList.remove('scanning');void el.offsetWidth;
+  el.classList.add('scanning');after(1250,()=>el.classList.remove('scanning'))}
+
+/* ── SVG 배선: 실제 DOM 위치로 선을 그린다 ──────────── */
+function wire(host,edges){
+  const svg=$('svg',host),box=host.getBoundingClientRect();
+  svg.setAttribute('viewBox',`0 0 ${box.width} ${box.height}`);
+  svg.innerHTML='';
+  const at=el=>{const b=el.getBoundingClientRect();
+    return [b.left-box.left+b.width/2,b.top-box.top+b.height/2]};
+  return edges.map(([a,b,cls],i)=>{
+    const [x1,y1]=at(a),[x2,y2]=at(b);
+    const p=document.createElementNS(NS,'path');
+    p.setAttribute('d',`M${x1} ${y1}L${x2} ${y2}`);
+    p.setAttribute('class','edge'+(cls?' '+cls:''));
+    p.style.setProperty('--e',i);
+    p.style.setProperty('--L',Math.hypot(x2-x1,y2-y1).toFixed(1));
+    svg.appendChild(p);return p;
+  });
+}
+/* 경로 위를 흐르는 입자 */
+function flow(path,color,dur,count,delay){
+  if(reduce||!path||!path.isConnected)return;
+  const svg=path.ownerSVGElement,len=path.getTotalLength();
+  for(let k=0;k<count;k++){
+    const c=document.createElementNS(NS,'circle');
+    c.setAttribute('r','3.4');c.setAttribute('fill',color);
+    c.style.filter='drop-shadow(0 0 6px '+color+')';
+    svg.appendChild(c);
+    const start=performance.now()+(delay||0)+k*(dur/count);
+    (function f(now){
+      if(!c.isConnected)return;
+      const p=(now-start)/dur;
+      if(p<0){frame(f);return}
+      if(p>=1){c.remove();return}
+      const pt=path.getPointAtLength(len*p);
+      c.setAttribute('cx',pt.x);c.setAttribute('cy',pt.y);
+      c.setAttribute('opacity',(p<.12?p/.12:p>.88?(1-p)/.12:1).toFixed(2));
+      frame(f);
+    })(performance.now());
+  }
+  after((delay||0)+dur+150,()=>$$('circle',svg).forEach(c=>c.remove()));
+}
+
+/* ── 표지 와이어프레임 타워 ──────────────────────────── */
+(function tower(){
+  const svg=document.getElementById('tower');
+  const W=120,D=120,FH=42,N=6;
+  const px=(x,y,z)=>[((x-y)*0.866).toFixed(1),((x+y)*0.5-z).toFixed(1)];
+  const ds=[];
+  for(let i=0;i<N;i++){
+    const z=i*FH;
+    ds.push('M'+[[0,0],[W,0],[W,D],[0,D]].map(([x,y])=>px(x,y,z).join(' ')).join('L')+'Z');
+    if(i<N-1)[[0,0],[W,0],[W,D],[0,D]].forEach(([x,y])=>
+      ds.push(`M${px(x,y,z).join(' ')}L${px(x,y,z+FH).join(' ')}`));
+  }
+  ds.forEach((d,i)=>{
+    const p=document.createElementNS(NS,'path');
+    p.setAttribute('d',d);p.style.setProperty('--d',i);
+    svg.appendChild(p);
+    p.style.setProperty('--L',p.getTotalLength().toFixed(1));
+  });
+})();
+
+/* ── 씬별 연출 ───────────────────────────────────────── */
+const PLAY={
+  clash(s){
+    const t=$('#heroTitle'),tw=$('#tower');
+    splitChars(t);t.classList.remove('lit');tw.classList.remove('draw');
+    void t.offsetWidth;
+    after(100,()=>{t.classList.add('lit');tw.classList.add('draw')});
+    after(760,()=>s.classList.add('playing'));
+    after(1680,()=>s.classList.add('shaken'));
+    after(2000,()=>shock($('.verdict',s),'#FF6B6B'));
+  },
+
+  glossary(s){ after(260,()=>s.classList.add('playing')); },
+
+  spread(s){
+    const host=$('#spread');host.classList.remove('playing');
+    const origin=$('.origin',host),dots=$$('.dot',host);
+    const paths=wire(host,dots.map(d=>[origin,d]));
+    after(200,()=>host.classList.add('playing'));
+    paths.forEach((p,i)=>after(1000+i*120,()=>
+      flow(p,i===paths.length-1?'#FF6B6B':'#6FE3D2',1100,2)));
+    after(2700,()=>{shock($('.dot.bad',host),'#FF6B6B');$('#hint3').classList.add('on')});
+  },
+
+  question(s){
+    const el=$('#bigq');el.classList.remove('typed-done');
+    after(420,()=>type(el,'“시공사가 V11 도면을 받았나요?”',52,()=>el.classList.add('typed-done')));
+  },
+
+  versions(s){
+    after(440,()=>{
+      s.classList.add('playing');
+      countTo($('#v11n'),500,600,950);countTo($('#v11n2'),500,600,950);
+    });
+    after(1500,()=>shock($('.vcard.b .plan',s),'#F0B45E'));
+    after(2300,()=>$('#hint5').classList.add('on'));
+  },
+
+  finger(s){
+    const H='8e615e50a4c7d19f8ac92a', H2='31c4a88027be6d5490d912';
+    const h1=$('#h1'),h2=$('#h2'),eq=$('#eqmark'),right=$('#fright'),note=$('#fnote2');
+    eq.textContent='=';eq.classList.remove('no');
+    right.classList.remove('mismatch');
+    note.textContent='이름도 날짜도 동일해 보입니다';
+    s.classList.remove('playing');
+    after(340,()=>{scan($('#fleft'));scan(right)});
+    after(740,()=>{scramble(h1,H,900);scramble(h2,H,900)});
+    after(2050,()=>{
+      s.classList.add('playing');right.classList.add('mismatch');
+      scramble(h2,H2,700);glitch(h2);
+      eq.textContent='≠';eq.classList.add('no');
+      note.textContent='내용이 바뀌었습니다 · 승인본이 아닙니다';
+      shock(right,'#FF6B6B');
+    });
+  },
+
+  stack(s){
+    const st=$('#stack1');st.classList.remove('spined');
+    after(260,()=>s.classList.add('playing'));
+    after(800,()=>st.classList.add('spined'));
+    after(1100,()=>s.classList.add('tech-on'));
+  },
+
+  stack2(s){
+    const st=$('#stack2');st.classList.remove('spined');
+    after(260,()=>s.classList.add('playing'));
+    after(800,()=>st.classList.add('spined'));
+    after(1100,()=>s.classList.add('tech-on'));
+    after(1700,()=>$$('.tech',st).forEach((t,i)=>
+      after(i*180,()=>shock(t,['#6FE3D2','#4DA2FF','#F0B45E'][i]))));
+  },
+
+  stamp(s){
+    const stamps=$$('.stamp',s);
+    stamps.forEach(st=>st.classList.remove('sealed'));
+    after(700,()=>s.classList.add('playing'));
+    stamps.forEach((st,i)=>after(760+i*240,()=>{
+      st.classList.add('sealed');shock($('.seal',st),'#6FE3D2');
+    }));
+  },
+
+  proof(s){
+    const host=$('#tree'),res=$('#proofres');
+    host.classList.remove('proved');res.classList.remove('ok');res.textContent='대조 전';
+    const n=k=>$(`[data-n="${k}"]`,host);
+    wire(host,[
+      [n('l1'),n('a')],[n('l2'),n('a')],
+      [n('l3'),n('b'),'lit'],[n('l4'),n('b')],
+      [n('a'),n('root')],[n('b'),n('root'),'lit']
+    ]);
+    after(1500,runProof);
+  },
+
+  ask(s){
+    $('#ansText').textContent='질문을 실행하면 검증된 답변이 표시됩니다.';
+    $('#cites').innerHTML='';
+    after(1500,runAsk);
+  },
+
+  attacks(s){
+    $$('.attack',s).forEach(a=>{a.classList.remove('hit');
+      const r=$('.res',a);r.textContent='대기';r.classList.remove('blocked')});
+    $('#scoreNum').textContent='0 / 11';
+    $('#score').classList.remove('done');
+    after(1400,runAttacks);
+  },
+
+  run(s){
+    const lines=[
+      ['head','$ npm run demo'],
+      ['','[1] 도면 파일 읽는 중  Structural_V10.ifc · V11'],
+      ['ok','[2] 파일 지문 계산 완료'],
+      ['ok','[3] 전자 도장 3건 검증 완료  설계 · 감리 · 시공'],
+      ['','[4] 진행 순서 확인  승인 → 배포 → 수신'],
+      ['','[5] 기록 봉인 생성'],
+      ['bad','[6] 변조본 대조  지문 불일치 감지'],
+      ['','[7] 검증 보고서 저장  audit-report.json'],
+      ['ok','    전 과정 재현 완료 · 8.4s']
+    ];
+    const term=$('#term');
+    term.innerHTML=lines.map(([c,t])=>`<span class="l ${c}">${t}</span>`).join('');
+    const els=$$('.l',term),rows=$$('.rrow',s);
+    rows.forEach(r=>r.classList.remove('on'));
+    els.forEach((el,i)=>after(400+i*290,()=>{
+      el.classList.add('on');
+      if(i>0&&rows[i-1])rows[i-1].classList.add('on');
+    }));
+    after(400+els.length*290,()=>rows.forEach(r=>r.classList.add('on')));
+  },
+
+  unlock(s){ after(260,()=>s.classList.add('playing')); },
+
+  recipe(s){
+    after(260,()=>s.classList.add('playing'));
+    after(1000,()=>$$('.rcard',s).forEach((c,i)=>
+      after(i*190,()=>shock(c,['#6FE3D2','#4DA2FF','#F0B45E'][i]))));
+  },
+
+  nownext(){}
+};
+
+/* ── 시연 동작 (자동 재생 + 버튼으로 다시 재생) ─────── */
+function runProof(){
+  const host=$('#tree');
+  host.classList.add('proved');
+  $$('.edge.lit',host).forEach((p,i)=>flow(p,'#6FE3D2',700,2,i*350));
+  after(900,()=>shock($('[data-n="root"]',host),'#6FE3D2'));
+  after(950,()=>{
+    const res=$('#proofres');
+    res.textContent='포함 확인 · V10 수신 기록은 봉인 안에 있습니다';
+    res.classList.add('ok');shock(res,'#6FE3D2');
+  });
+}
+function runAsk(){
+  const q=$('#askInput').value,ans=$('#ansText'),box=$('#cites');
+  box.innerHTML='';
+  const out=/책임|배상|손해|과실|소송/.test(q);
+  const text=out
+    ? '이 질문에는 답하지 않겠습니다. 증거가 말해줄 수 있는 범위를 벗어납니다.'
+    : 'V11은 만들어졌지만 배포·수신 기록이 없습니다. 현장이 받은 공식 도면은 V10입니다.';
+  const cites=out?['기권 · 근거 범위 밖']
+    :['배포 기록 evt-v10-distribute','수신 기록 evt-v10-receive','전자 도장 3건 ✓','봉인 대조 ✓'];
+  type(ans,text,26,()=>cites.forEach((c,i)=>{
+    const el=document.createElement('span');
+    el.className='cite';el.textContent=c;box.appendChild(el);
+    after(i*160,()=>el.classList.add('on'));
+  }));
+}
+function runAttacks(){
+  const labels=['차단됨 · 권한 없음','차단됨 · 중복 기록','차단됨 · 순서 위반'];
+  $$('.attack').forEach((a,i)=>after(i*300,()=>{
+    a.classList.remove('hit');void a.offsetWidth;a.classList.add('hit');
+    after(240,()=>{
+      const r=$('.res',a);r.textContent=labels[i];r.classList.add('blocked');
+      shock(r,'#6FE3D2');
+    });
+  }));
+  after(1100,()=>{
+    countTo($('#scoreNum'),0,11,900);
+    $('#score').classList.add('done');
+    after(950,()=>{$('#scoreNum').textContent='11 / 11';shock($('#score'),'#6FE3D2')});
+  });
+}
+$('[data-act="proof"]').onclick=()=>runProof();
+$('[data-act="ask"]').onclick=()=>runAsk();
+$('[data-act="attacks"]').onclick=()=>runAttacks();
+
+/* ── 씬 전환 ─────────────────────────────────────────── */
+function reset(s){
+  s.classList.remove('playing','shaken','tech-on');
+  const sp=$('.spread',s);if(sp)sp.classList.remove('playing');
+  $$('.hint',s).forEach(h=>h.classList.remove('on'));
+  $$('.stack',s).forEach(st=>st.classList.remove('spined'));
+  $$('.shock',s).forEach(x=>x.remove());
+  const t=$('#heroTitle',s);if(t)t.classList.remove('lit');
+}
+let index=Math.max(0,Math.min(scenes.length-1,
+  Number(new URLSearchParams(location.search).get('step')||1)-1));
+
+scenes.forEach((s,i)=>{
+  const b=document.createElement('button');
+  b.className='chapter';b.title=`${i+1}. ${s.dataset.title}`;
+  b.innerHTML=`<span>${s.dataset.title}</span>`;
+  b.onclick=()=>show(i);nav.appendChild(b);
+});
+const tabs=[...nav.children];
+
+function show(n,replay){
+  const target=Math.max(0,Math.min(scenes.length-1,n));
+  if(!replay&&target===index&&scenes[index].classList.contains('active'))return;
+  gen++;killTimers();
+  scenes.forEach(reset);
+  index=target;
+  if(!reduce){sweep.classList.remove('on');void sweep.offsetWidth;sweep.classList.add('on')}
+  scenes.forEach(s=>s.classList.remove('active'));
+  void scenes[index].offsetWidth;          // 리플로우 강제 — 백그라운드 탭에서도 전환이 확실히 걸린다
+  scenes[index].classList.add('active');
+  tabs.forEach((t,i)=>t.classList.toggle('active',i===index));
+  countEl.textContent=`${String(index+1).padStart(2,'0')} / ${String(scenes.length).padStart(2,'0')}`;
+  titleEl.textContent=scenes[index].dataset.title;
+  bar.style.width=`${(index+1)/scenes.length*100}%`;
+  history.replaceState(null,'',`${location.pathname}?step=${index+1}`);
+  const key=scenes[index].dataset.anim;
+  if(key&&PLAY[key])after(80,()=>PLAY[key](scenes[index]));
+}
+
+document.getElementById('prev').onclick=()=>show(index-1);
+document.getElementById('next').onclick=()=>show(index+1);
+
+const help=document.getElementById('help');
+document.getElementById('helpBtn').onclick=()=>help.classList.add('open');
+help.onclick=e=>{if(e.target===help)help.classList.remove('open')};
+
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'){if(e.key==='Enter')$('[data-act="ask"]').click();return}
+  const k=e.key;
+  if(k==='Escape')help.classList.remove('open');
+  else if(k==='ArrowRight'||k==='PageDown'||k===' '){e.preventDefault();show(index+1)}
+  else if(k==='ArrowLeft'||k==='PageUp')show(index-1);
+  else if(k==='Home')show(0);
+  else if(k==='End')show(scenes.length-1);
+  else if(k.toLowerCase()==='r')show(index,true);
+  else if(k.toLowerCase()==='f')
+    document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+  else if(k==='?')help.classList.add('open');
+});
+
+addEventListener('resize',()=>{const k=scenes[index].dataset.anim;
+  if(k==='spread'||k==='proof')show(index,true)});
+
+show(index,true);
+})();
+</script>
+</body>
+</html>

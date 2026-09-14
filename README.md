@@ -7,6 +7,18 @@
 
 > BuildTrace는 책임이나 배상액을 판정하지 않습니다. 판단에 필요한 **증거를 제공**할 뿐입니다.
 
+## 관련 저장소
+
+이 저장소는 **발표용 웹 데모**입니다. 화면에 나오는 해시·서명·Merkle proof를 실제로 계산하고
+검증하는 코드는 별도 저장소에 있습니다.
+
+| 저장소 | 내용 |
+|---|---|
+| 이곳 | `index.html` 한 장짜리 시연 화면 |
+| [Real-Woong/BuildTrace-proof](https://github.com/Real-Woong/BuildTrace-proof) | IFC parser, 원장, 서명·Merkle 검증, 자동 테스트 (private — 접근 권한이 필요합니다) |
+
+데모에 표시되는 값은 검증 저장소에서 `npm run demo`가 생성하는 `demo-output/audit-report.json`을 기준으로 맞춥니다.
+
 ## 실행
 
 정적 파일 하나(`index.html`)로 끝납니다. 빌드도 서버도 필요 없습니다.

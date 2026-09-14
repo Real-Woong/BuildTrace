@@ -233,6 +233,8 @@ h3{font-size:20px;font-weight:400;letter-spacing:-.01em}
 .fname{font:14px var(--mono);color:var(--text-2)}
 .fhash{margin-top:14px;font:clamp(14px,1.4vw,18px)/1.5 var(--mono);color:var(--sui);word-break:break-all}
 .finger.right .fhash{color:var(--text-2)}
+.fhash span{display:inline-block}
+.fhash em{display:block;margin-bottom:4px;font:400 11px var(--mono);font-style:normal;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2);opacity:.65}
 .playing .finger.right.mismatch .fhash{color:var(--red)}
 .fnote{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:13px;color:var(--text-3)}
 .eq{text-align:center;font:300 40px var(--mono);color:var(--text-3);transition:.3s}
@@ -611,14 +613,14 @@ kbd{padding:5px 8px;border:1px solid var(--line);font:12px var(--mono);color:var
           <div class="finger" id="fleft">
             <div class="klabel">승인된 원본</div>
             <div class="fname">Structural_V10.ifc</div>
-            <div class="fhash" id="h1">················</div>
+            <div class="fhash" title="sha256:b8f5ed5053cd6129321d534fbb8fd077afa267f247f9efe4db65ca3418166c1e"><em>sha256</em><span id="h1">···························</span></div>
             <div class="fnote">2026-03-14 감리 승인 시점에 기록된 지문</div>
           </div>
           <div class="eq" id="eqmark">=</div>
           <div class="finger right" id="fright">
             <div class="klabel">현장에서 발견된 파일</div>
             <div class="fname">Structural_V10.ifc</div>
-            <div class="fhash" id="h2">················</div>
+            <div class="fhash" title="sha256:33016aab24e0a87dff1316b5ee4994471c702804474183e7a74559e78ce92737"><em>sha256</em><span id="h2">···························</span></div>
             <div class="fnote" id="fnote2">이름도 날짜도 동일해 보입니다</div>
           </div>
         </div>
@@ -1076,7 +1078,10 @@ const PLAY={
   },
 
   finger(s){
-    const H='8e615e50a4c7d19f8ac92a', H2='31c4a88027be6d5490d912';
+    // 지문은 BuildTrace-proof의 `npm run demo`가 만드는 demo-output/audit-report.json에서 가져온다.
+    // original_file.actual_hash / tampered_file.actual_hash의 앞 16자 + 뒤 10자다.
+    // fixture나 원장이 바뀌면 audit-report.json을 다시 만들어 이 두 줄과 title 속성을 갱신해야 한다.
+    const H='b8f5ed5053cd6129…3418166c1e', H2='33016aab24e0a87d…e78ce92737';
     const h1=$('#h1'),h2=$('#h2'),eq=$('#eqmark'),right=$('#fright'),note=$('#fnote2');
     eq.textContent='=';eq.classList.remove('no');
     right.classList.remove('mismatch');

@@ -1159,7 +1159,9 @@ const PLAY={
       ['','[5] 기록 봉인 생성'],
       ['bad','[6] 변조본 대조  지문 불일치 감지'],
       ['','[7] 검증 보고서 저장  audit-report.json'],
-      ['ok','    전 과정 재현 완료 · 8.4s']
+      // 실측값. BuildTrace-proof에서 `npm run demo` 5회 모두 0.17s (node 단독 0.08s).
+      // 코드가 바뀌면 다시 재서 갱신한다.
+      ['ok','    전 과정 재현 완료 · 0.17s']
     ];
     const term=$('#term');
     term.innerHTML=lines.map(([c,t])=>`<span class="l ${c}">${t}</span>`).join('');
